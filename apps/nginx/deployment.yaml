@@ -16,6 +16,6 @@ spec:
       - name: nginx
   #      image: nginx:stable
         image: nonexistent:broken
-          ports:
-          - containerPort: "not-a-number"
+        ports:
+        - containerPort: "not-a-number"
       
