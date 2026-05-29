@@ -72,6 +72,16 @@ For every stage you:
 
 The git history of this repo contains worked examples of each break and its fix — use `git log -p apps/nginx/deployment.yaml` if you get stuck.
 
+## Lab stages at a glance
+
+| Stage | Break | Resulting state | Lesson |
+|-------|-------|-----------------|--------|
+| [1](#stage-1--bad-image--invalid-manifest) | Bad image + invalid `containerPort` | Synced but **Degraded** (ImagePullBackOff) | Sync and Health are separate — check both |
+| [2](#stage-2--mutating-an-immutable-field-the-selector-trap) | Change the Deployment `selector` | **Sync fails** at apply time | Some fields are immutable; a Git revert only heals if the bad value never applied |
+| [3](#stage-3--service-selector-mismatch-green-but-broken) | Service selector no longer matches pods | **Synced + Healthy** yet no traffic | Green status ≠ working — verify endpoints/connectivity |
+| [4](#stage-4--drift--self-heal-the-cluster-fights-back) | `kubectl scale` directly in the cluster | Drift **auto-reverted** to Git | Git is the source of truth; out-of-band changes don't stick |
+| [5](#stage-5--prune--orphaned-resources) | Delete a manifest from Git | Resource **pruned** (or orphaned if prune off) | Pruning controls whether Git deletions delete live objects |
+
 ---
 
 ## Stage 1 — Bad image & invalid manifest
