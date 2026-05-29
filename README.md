@@ -136,6 +136,42 @@ metadata:
 
 ---
 
+## Stage 3 — Service selector mismatch (green but broken)
+
+**Break:** in `apps/nginx/service.yaml`, change the Service selector so it no longer matches the pods:
+```yaml
+spec:
+  selector:
+    app: web          # pods are labeled app: nginx
+```
+Commit, push, and let Argo CD sync.
+
+**Observe / diagnose:**
+- `argocd app get nginx` reports **Synced** *and* **Healthy** — nothing looks wrong. This is the trap.
+- But the Service now selects zero pods, so its ClusterIP routes to nothing. Check the endpoints:
+  ```bash
+  kubectl get endpoints nginx -n default
+  # ENDPOINTS column goes from two pod IPs to <none>
+  ```
+- Prove the outage with a throwaway client pod:
+  ```bash
+  kubectl run curltest --rm -it --image=curlimages/curl --restart=Never -- \
+    curl -sS --max-time 5 http://nginx.default.svc.cluster.local
+  # Before the break: nginx welcome HTML. After: times out / no route.
+  ```
+
+**Fix:** restore the matching selector:
+```yaml
+spec:
+  selector:
+    app: nginx
+```
+Endpoints repopulate with the two pod IPs and the curl test succeeds again.
+
+**Lesson:** "Synced + Healthy" is **necessary but not sufficient**. Argo CD's built-in health check for a `ClusterIP` Service only asks "does the object exist?" — it does **not** validate that the Service actually selects running pods. A typo in a selector silently severs traffic while every dashboard stays green. Always verify the real wiring (`kubectl get endpoints`, an in-cluster request, or a synthetic probe), not just the GitOps status.
+
+---
+
 ## Cleanup
 
 ```bash
