@@ -208,6 +208,57 @@ kubectl get deployment nginx -n default # back to 2/2
 
 ---
 
+## Stage 5 — Prune & orphaned resources
+
+This stage is about **deletion**: what happens to a live object when its manifest disappears from Git. The Application already has `prune: true`, so first add a throwaway resource to have something to remove.
+
+**Setup — add a resource.** Create `apps/nginx/configmap.yaml`:
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-extra
+data:
+  note: "temporary resource for the prune exercise"
+```
+Reference it in `apps/nginx/kustomization.yaml`:
+```yaml
+resources:
+  - deployment.yaml
+  - service.yaml
+  - configmap.yaml
+```
+Commit, push, sync, and confirm it exists:
+```bash
+kubectl get configmap nginx-extra -n default   # created by Argo CD
+```
+
+**Break — remove it from Git.** Delete `configmap.yaml` and its line in `kustomization.yaml`, then commit and push.
+
+**Observe / diagnose:**
+- With `prune: true`, the next sync deletes the object because it's no longer in Git:
+  ```bash
+  argocd app get nginx                           # ConfigMap shown as pruned, then gone
+  kubectl get configmap nginx-extra -n default   # NotFound
+  ```
+- Now see the **opposite** behavior. Re-add the ConfigMap (setup step) and sync, then disable auto-prune and remove it from Git again:
+  ```bash
+  argocd app set nginx --auto-prune=false
+  # delete configmap.yaml + its kustomization line, commit, push
+  argocd app get nginx                           # OutOfSync — ConfigMap flagged for prune but NOT deleted
+  kubectl get configmap nginx-extra -n default   # still present = orphaned
+  argocd app sync nginx --prune                  # manually prune when you're ready
+  ```
+
+**Fix / restore:** there's no broken workload to repair here — the point is the deletion semantics. Re-enable auto-prune so the lab returns to its default policy:
+```bash
+argocd app set nginx --auto-prune=true
+```
+
+**Lesson:** Pruning controls whether resources deleted from Git are also deleted from the cluster. With `prune: true`, **Git is authoritative for a resource's existence** — drop the manifest and the live object goes away. With pruning disabled, removed manifests leave **orphaned** objects that linger silently while the app sits OutOfSync, so you must prune manually (`--prune`). To protect a specific object Argo CD created but should never auto-delete (e.g. a PVC holding data), annotate it `argocd.argoproj.io/sync-options: Prune=false`.
+
+---
+
 ## Cleanup
 
 ```bash
