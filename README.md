@@ -172,6 +172,42 @@ Endpoints repopulate with the two pod IPs and the curl test succeeds again.
 
 ---
 
+## Stage 4 — Drift & self-heal (the cluster fights back)
+
+Unlike the earlier stages, this break is made **directly in the cluster**, not in Git — to show the reconciliation loop in action.
+
+**Break:** scale the Deployment by hand, bypassing Git:
+```bash
+kubectl scale deployment nginx -n default --replicas=5
+kubectl get pods -n default -l app=nginx -w
+```
+
+**Observe / diagnose:**
+- Git still says `replicas: 2`, so the live cluster now **drifts** from the desired state.
+- Because the Application has `selfHeal: true`, Argo CD detects the drift and scales the Deployment back to 2 — often within seconds. With `-w` you'll see the extra pods get terminated almost as fast as they appear.
+- Watch it from Argo CD's side:
+  ```bash
+  argocd app get nginx        # briefly OutOfSync, then Synced again
+  argocd app history nginx    # the self-heal sync is recorded
+  ```
+- To actually *hold* the drift so you can inspect it, disable self-heal first, then scale:
+  ```bash
+  argocd app set nginx --self-heal=false
+  kubectl scale deployment nginx -n default --replicas=5
+  argocd app get nginx        # stays OutOfSync (5 vs 2) — Argo CD reports but won't correct
+  ```
+
+**Fix:** re-enable self-heal (or run a manual sync) to converge back to Git:
+```bash
+argocd app set nginx --self-heal=true   # if you disabled it
+argocd app sync nginx                   # or just wait for the next reconcile
+kubectl get deployment nginx -n default # back to 2/2
+```
+
+**Lesson:** In GitOps, **Git is the source of truth and the cluster is continuously reconciled toward it.** With `selfHeal: true`, manual `kubectl scale`/`edit` changes are transient — Argo CD reverts them. This is a feature (no config drift, no snowflake clusters), but it also means *out-of-band hotfixes don't stick*: the durable fix must land in Git. When you genuinely need to pause reconciliation (debugging, an incident), do it deliberately with `--self-heal=false` rather than fighting the controller.
+
+---
+
 ## Cleanup
 
 ```bash
@@ -182,4 +218,4 @@ kind delete cluster --name argocd-lab
 ## Notes
 
 - The `argocd-initial-admin-secret` is a bootstrap credential. For anything beyond a local lab, change the admin password (`argocd account update-password`) and delete the secret.
-- `selfHeal: true` means Argo CD will revert manual `kubectl edit` changes back to Git — to experiment with drift, temporarily disable self-heal or expect it to be corrected.
+- Self-heal behavior is covered hands-on in Stage 4 — manual `kubectl` changes are reverted toward Git unless you set `--self-heal=false`.
